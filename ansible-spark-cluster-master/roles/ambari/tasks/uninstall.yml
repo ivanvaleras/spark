@@ -1,0 +1,136 @@
+##########################################
+## Uninstall ambari server on all nodes
+##########################################
+#- name: stop all ambari services
+#  shell: >
+#        curl -H "X-Requested-By: ambari" -X PUT -u admin:admin -d '{"RequestInfo":{"context":"_PARSE_.STOP.ALL_SERVICES","operation_level":{"level":"CLUSTER","cluster_name":"Sandbox"}},"Body":{"ServiceInfo":{"state":"INSTALLED"}}}' http://{{groups['master'][0]}}:8081/api/v1/clusters/hdp/services
+#  ignore_errors: yes
+#  when: (inventory_hostname in groups['master'])
+
+#- name: wait for all ambari services to stop
+#  pause:
+#   seconds: 90
+
+#- name: Reboot nodes before uninstalling Ambari
+#  become: yes
+#  shell: sleep 3 && /sbin/shutdown -r now "System reboot"
+#  async: 1
+#  poll: 0
+
+#- name: Wait for nodes to be ready before continuing Ambari uninstall
+#  local_action: wait_for host={{ ansible_default_ipv4.address }} port=22 state=started delay=30 timeout=360
+
+- name: stop ambari-server service
+  shell: "ambari-server stop"
+  ignore_errors: yes
+  when: (inventory_hostname in groups['master'])
+
+- name: reset ambari-server data
+  shell: "ambari-server reset --silent"
+  ignore_errors: yes
+  when: (inventory_hostname in groups['master'])
+
+- name: remove ambari server artifacts on master node
+  shell:
+     yum erase -y ambari-server
+  when: (inventory_hostname in groups['master'])
+
+- name: remove remaining ambari server on master node
+  shell:
+    rm -rf /var/lib/ambari-server
+    rm -rf /var/run/ambari-server
+    rm -rf /usr/lib/ambari-server
+    rm -rf /etc/ambari-server
+    rm -rf /var/log/ambari-server/
+    rm -rf /tmp/hostmapping.json
+    rm -rf /tmp/blueprint_multi_node_spark.json
+    rm -rf /tmp/hsperfdata*
+    rm -rf /tmp/ambari.properties.*
+    rm -rf /etc/yum.repos.d/ambari*.repo
+  ignore_errors: yes
+  when: (inventory_hostname in groups['master'])
+
+- name: remove postgres ambari server databases
+  shell: >
+    su - postgres -c "dropdb ambari"
+  ignore_errors: yes
+  when: (inventory_hostname in groups['master'])
+
+- name: remove postgress on master node
+  shell:
+     yum erase -y postgresql
+  when: (inventory_hostname in groups['master'])
+
+- name: stop ambari-agent service
+  shell: "ambari-agent stop"
+  ignore_errors: yes
+
+#- name: run uninstall script on all nodes
+#  shell: python /usr/lib/python2.6/site-packages/ambari_commons/host_uninstall.py
+#  ignore_errors: yes
+
+- name: remove ambari agent on all nodes
+  shell:
+     yum erase -y ambari-agent
+
+- name: remove remaining config files on all nodes
+  shell: >
+     rm -rf /var/lib/ambari-agent
+     rm -rf /var/run/ambari-agent
+     rm -rf /usr/lib/amrbari-agent
+     rm -rf /etc/ambari-agent
+     rm -rf /var/log/ambari-agent
+     rm -rf /usr/lib/python2.6/site-packages/ambari*
+     rm -rf /etc/yum.repos.d/IOP.repo
+     rm -rf /etc/yum.repos.d/IOP-UTILS.repo
+     rm -rf /etc/yum.repos.d/ambari.repo
+     rm -rf /var/log/ambari-agent
+     rm -rf /var/log/hadoop
+     rm -rf /var/log/hadoop-hdfs
+     rm -rf /var/log/hadoop-mapreduce
+     rm -rf /var/log/hadoop-yarn
+     rm -rf /var/log/hive
+     rm -rf /var/log/hive2
+     rm -rf /var/log/hive-hcatalog
+     rm -rf /var/log/knox
+     rm -rf /var/log/spark
+     rm -rf /var/log/spark2
+     rm -rf /var/log/webcat
+     rm -rf /var/log/webhcat
+     rm -rf /var/log/zookeeper
+  ignore_errors: yes
+
+- user: name="ambari-qa" state="absent" remove="yes"
+- user: name="yarn" state="absent" remove="yes"
+- user: name="hdfs" state="absent" remove="yes"
+- user: name="users" state="absent" remove="yes"
+- user: name="hcat" state="absent" remove="yes"
+- user: name="hive" state="absent" remove="yes"
+- user: name="livy" state="absent" remove="yes"
+- user: name="mapred" state="absent" remove="yes"
+- user: name="hadoop" state="absent" remove="yes"
+- user: name="spark" state="absent" remove="yes"
+- user: name="knox" state="absent" remove="yes"
+- user: name="zookeeper" state="absent" remove="yes"
+
+- name: remove old ambari repo definition
+  file: path="/etc/yum.repos.d/ambari.repo" state=absent
+
+- name: remove old HDP repo definition
+  file: path="/etc/yum.repos.d/HDP.repo" state=absent
+
+- name: remove old HDP-UTILS repo definition
+  file: path="/etc/yum.repos.d/HDP-UTILS.repo" state=absent
+
+- name: remove old MySQL community repo definition
+  file: path="/etc/yum.repos.d/mysql-community.repo" state=absent
+
+- name: remove old MySQL community source repo definition
+  file: path="/etc/yum.repos.d/mysql-community-source.repo" state=absent
+
+- name: remove HDP specific java installation
+  file: path="/usr/jdk64" state=absent
+
+- name: remove Hadoop HDFS
+  file: path="/hadoop" state=absent
+  ignore_errors: yes

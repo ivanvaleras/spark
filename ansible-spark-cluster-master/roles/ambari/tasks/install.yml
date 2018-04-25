@@ -1,0 +1,125 @@
+##########################################
+## Install ambari server on all nodes
+##########################################
+
+- debug: msg="groups={{groups}}"
+  run_once: true
+
+- name: add ambari repository to all nodes
+  template:
+    src: ambari.repo.j2
+    dest: /etc/yum.repos.d/ambari.repo
+    mode: 0644
+
+- name: add mysql-community repository to all nodes
+  template:
+    src: mysql-community.repo.j2
+    dest: /etc/yum.repos.d/mysql-community.repo
+    mode: 0644
+  when: inventory_hostname in groups['master']
+
+- name: add mysql-community-source repository to all nodes
+  template:
+    src: mysql-community-source.repo.j2
+    dest: /etc/yum.repos.d/mysql-community-source .repo
+    mode: 0644
+  when: inventory_hostname in groups['master']
+
+- name: install mysql connector into all nodes
+  shell: |
+     yum install -y mysql-connector-java
+
+
+- name: copy mysql connector to required locations
+  shell: |
+     mkdir -p /usr/hdp/2.6.4.0-91/hive/lib/
+     cp /usr/share/java/mysql-connector-java.jar /usr/hdp/2.6.4.0-91/hive/lib/
+     mkdir -p /usr/hdp/2.6.4.0-91/hive2/lib/
+     cp /usr/share/java/mysql-connector-java.jar /usr/hdp/2.6.4.0-91/hive2/lib/
+
+- name: update yum after adding ambari repo
+  shell: |
+     yum update -y
+     yum clean all
+
+- name: install ambari-server on master node
+  shell:
+     yum install -y ambari-server
+  when: inventory_hostname in groups['master']
+
+- name: setup ambari server on master node
+  shell:
+    ambari-server setup --silent
+  when: inventory_hostname in groups['master'] and not install_java
+
+- name: setup ambari server on master node with custom java home
+  shell:
+    ambari-server setup --silent --java-home {{ java_home }}
+  when: inventory_hostname in groups['master'] and install_java
+
+- name: increase ambari-server startup.web.timeout in order to prevent 'Server not yet listening on http port after 50 seconds. Exiting'
+  lineinfile:
+    dest: /etc/ambari-server/conf/ambari.properties
+    regexp: '^server.startup.web.timeout'
+    line: 'server.startup.web.timeout=580'
+  when: inventory_hostname in groups['master']
+
+- name: change default ambari-server port
+  lineinfile:
+    dest: /etc/ambari-server/conf/ambari.properties
+    regexp: '^client.api.port'
+    line: 'client.api.port=8081'
+  when: inventory_hostname in groups['master']
+
+#- name: Fetch Java version
+#  shell: >
+#     java -version 2>&1 | grep version | awk '{print $3}' | sed 's/\"//g'
+#  register: java_version
+
+#- name: properly set java_home in ambari.properties
+#  lineinfile:
+#    dest: /etc/ambari-server/conf/ambari.properties
+#    regexp: "^java.home="
+#    line: "java.home={{ansible_env.JAVA_HOME}}"
+#  when: inventory_hostname in groups['master']
+
+- name: restart ambari-server on master node
+  shell:
+    /usr/sbin/ambari-server restart
+  when: inventory_hostname in groups['master']
+
+- name: verify connection to ambari-server port 8081
+  uri:
+    url: "http://{{ groups['master'][0] }}.{{ ansible_domain }}:8081/api/v1/hosts"    
+    method: GET
+    headers:
+      X-Requested-By: ambari
+    user: admin
+    password: admin
+    force_basic_auth: yes
+    status_code: 200
+  retries: 10
+  delay: 1
+  register: check_ambari_server_port
+  until: check_ambari_server_port.status == 200
+
+- name: install ambari-agent on all nodes
+  shell:
+     yum install -y ambari-agent
+
+- name: change master hostname in ambari agent configuration in all nodes
+  lineinfile:
+    dest: /etc/ambari-agent/conf/ambari-agent.ini
+    regexp: '^hostname=localhost'
+    line: "hostname={{ groups['master'][0] }}"
+
+- name: start ambari agent on all nodes
+  shell:
+    /usr/sbin/ambari-agent start
+
+# Environment setup.
+- name: Add ambari related env to startup
+  template:
+    src: ambari-profile.sh.j2
+    dest: /etc/profile.d/ambari-profile.sh
+    mode: 0644

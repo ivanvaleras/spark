@@ -1,0 +1,6 @@
+common:
+  java_version: 8u162
+  java_home: "/usr/java/jdk1.8.0_162"
+  java_download: "http://download.oracle.com/otn-pub/java/jdk/8u171-b11/512cd62ec5174c3487ac17c61aaa89e8/jdk-8u171-linux-x64.rpm?AuthParam=1524553649_72e59b17ce70c874b788cac38b654092"
+  java_jce_download: "http://download.oracle.com/otn-pub/java/jce/8/jce_policy-8.zip?AuthParam=1524553705_cbfa725b5bd9c4888cfa93c4c17f4818"
+

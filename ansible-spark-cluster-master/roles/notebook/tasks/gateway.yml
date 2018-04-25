@@ -1,0 +1,160 @@
+ # configure hadoop
+ - name: create hadoop home folder
+   shell: "sudo -u hdfs hadoop fs -mkdir /user/root"
+   ignore_errors: yes
+   become_user: hdfs
+   when: (inventory_hostname in groups['master'])
+
+ - name: configure hadoop home folder
+   shell: "sudo -u hdfs hadoop fs -chown root /user/root"
+   ignore_errors: yes
+   become_user: hdfs
+   when: (inventory_hostname in groups['master'])
+
+ # Create and Configure Elyra service user
+ - name: remove elyra user
+   user:
+      name: "{{ notebook.user }}"
+      state: absent
+      remove: yes
+
+ - name: remove elyra group
+   group:
+     name: "{{ notebook.user }}"
+     state: absent
+
+ - name: create elyra user in master node
+   user:
+     name: "{{ notebook.user }}"
+     groups: "{{ notebook.groups }}"
+     append: yes
+   when: inventory_hostname in groups['master']
+
+ - name: create elyra user in data nodes
+   user:
+     name: "{{ notebook.user }}"
+     append: yes
+   when: inventory_hostname in groups['nodes']
+
+ - name: create elyra user ssh folder
+   file:
+    path: "/home/{{ notebook.user }}/.ssh"
+    state: directory
+    owner: "{{ notebook.user }}"
+    group: "{{ notebook.user }}"
+    mode: 0700
+
+- name: ssh config file should be available
+  template:
+    src: "config.j2"
+    dest: "/home/{{ notebook.user }}/.ssh/config"
+    owner: "{{ notebook.user }}"
+    group: "{{ notebook.user }}"
+    mode: "600"
+
+ - name: remove old SSH keys for elyra user
+   local_action: file path="{{item}}" state=absent 
+   with_fileglob:
+     - /tmp/elyra_id_rsa*
+   run_once: true
+
+ - name: generate SSH keys for elyra user
+   local_action: shell ssh-keygen -t rsa -b 4096 -f /tmp/elyra_id_rsa -q -N ""
+   run_once: true
+
+ - name: copy private ssh key to node
+   copy:
+     src: "/tmp/elyra_id_rsa"
+     dest: "/home/{{ notebook.user }}/.ssh/id_rsa"
+     owner: "{{ notebook.user }}"
+     group: "{{ notebook.user }}"
+     mode: 0600
+
+ - name: copy public ssh key to node
+   copy:
+     src: "/tmp/elyra_id_rsa.pub"
+     dest: "/home/{{ notebook.user }}/.ssh/id_rsa.pub"
+     owner: "{{ notebook.user }}"
+     group: "{{ notebook.user }}"
+     mode: 0644
+
+ - name: add SSH key to authorized users
+   authorized_key:
+     user: "{{ notebook.user }}"
+     state: present
+     key: "{{ lookup('file', '/tmp/elyra_id_rsa.pub') }}"
+
+ - name: remove local SSH keys for elyra user
+   local_action: file path="{{item}}" state=absent 
+   with_fileglob:
+     - /tmp/elyra_id_rsa*
+   run_once: true
+
+ # install elyra
+ - name: pip install elyra
+   shell: "{{ pip }} install --upgrade jupyter_enterprise_gateway"
+   when: (inventory_hostname in groups['master'])
+
+ # finish other elyra config (e.g. log folders, startup script utility, etc)
+ - name: Remove elyra root installation folder
+   file:
+     path: "{{ notebook.elyra_log_directory }}"
+     state: absent
+
+ - name: create bin directory for elyra
+   file:
+     path: "{{ notebook.elyra_install_directory }}/bin"
+     state: directory
+     owner: "{{ notebook.user }}"
+     group: "{{ notebook.user }}"
+     mode: 0755
+   become_user: "{{ notebook.user }}"
+   ignore_errors: yes
+   when: (inventory_hostname in groups['master'])
+
+ - name: create log directory for elyra
+   file:
+     path: "{{ notebook.elyra_log_directory }}"
+     state: directory
+     owner: "{{ notebook.user }}"
+     group: "{{ notebook.user }}"
+     mode: 0755
+   become_user: "{{ notebook.user }}"
+   ignore_errors: yes
+   when: (inventory_hostname in groups['master'])
+
+ - name: create runtime directory for elyra
+   file:
+    path: "{{ notebook.elyra_runtime_directory }}"
+    state: directory
+    owner: "{{ notebook.user }}"
+    group: "{{ notebook.user }}"
+    mode: 0755
+   become_user: "{{ notebook.user }}"
+   ignore_errors: yes
+   when: (inventory_hostname in groups['master'])
+
+ - name: generate elyra startup script
+   template:
+    src: start-elyra.sh.j2
+    dest: "{{ notebook.elyra_install_directory }}/bin/start-elyra.sh"
+    mode: 0744
+    owner: "{{ notebook.user }}"
+    group: "{{ notebook.user }}"
+   when: (inventory_hostname in groups['master'])
+
+ # copy elyra kernel specs
+ # https://github.com/jupyter-incubator/enterprise_gateway/releases/download/v0.6.0/jupyter_enterprise_gateway_kernelspecs-0.6.0.tar.gz
+
+ - name: set kernelspec archive name
+   set_fact: kernelspec_archive=jupyter_enterprise_gateway_kernelspecs-{{ notebook.elyra_version }}.tar.gz
+
+ - name: set kernelspec download location
+   set_fact: kernelspec_download_location=https://github.com/jupyter-incubator/enterprise_gateway/releases/download/v{{ notebook.elyra_version }}/{{ kernelspec_archive }}
+
+ - debug:
+     msg: "Downloading kernelspecs from: {{ kernelspec_download_location }}"
+
+ - name: download elyra kernelspecs
+   shell: "curl -L {{ kernelspec_download_location }} --output {{ install_temp_dir }}/{{ kernelspec_archive }}"
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)

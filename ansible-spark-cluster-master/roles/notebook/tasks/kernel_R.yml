@@ -1,0 +1,88 @@
+ #### NON-ANACONDA deployment mode
+ - name: Remove R binaries
+   yum:
+    name: R, R-core, R-devel, R-core-devel
+    state: removed
+   when: not notebook.use_anaconda
+
+ - name: install R binaries
+   yum:
+    name: R
+    state: installed
+   when: not notebook.use_anaconda
+
+ - name: install required R packages
+   command: >
+     {{rscript}} --slave --no-save --no-restore-history -e "if (! ('{{item}}' %in% installed.packages()[,'Package'])) install.packages(pkgs='{{item}}', repos=c('http://cran.cnr.berkeley.edu/'))"
+   with_items:
+   - RCurl
+   - devtools
+   - uuid
+   - argparser
+   when: not notebook.use_anaconda
+
+ - name: install IRkernel
+   command: >
+     {{rscript}} --slave --no-save --no-restore-history -e "library(devtools)" -e "install_github('IRkernel/repr')" -e "install_github('IRkernel/IRdisplay')" -e "install_github('IRkernel/IRkernel')" -e "IRkernel::installspec(user=FALSE)"
+   when: not notebook.use_anaconda
+ ########################
+
+
+  #### ANACONDA deployment mode
+ - name: install Anaconda R binaries
+   shell: "{{ install_dir }}/anaconda{{ python_version }}/bin/conda install --yes --quiet -c r r-essentials r-irkernel"
+   when: notebook.use_anaconda
+
+ - name: install argparser R package
+   shell: >
+     {{ install_dir }}/anaconda{{ python_version }}/bin/Rscript -e 'install.packages("argparser", repos="https://cran.rstudio.com")' 
+   when: notebook.use_anaconda
+  ########################
+
+ - name: remove old R kernelspecs for yarn cluster mode
+   file:
+     path: "{{ jupyter_kernelspec_location }}/spark_R_yarn_cluster"
+     state: absent
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)
+
+ - name: remove old R kernelspecs for yarn client mode
+   file:
+     path: "{{ jupyter_kernelspec_location }}/spark_R_yarn_client"
+     state: absent
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)
+
+ - name: remove default R kernelspecs
+   file:
+     path: "{{ jupyter_kernelspec_location }}/ir"
+     state: absent
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)
+
+ - name: create placeholder location for R kernelspecs in yarn cluster
+   file:
+     path: "{{ jupyter_kernelspec_location }}/spark_R_yarn_cluster"
+     state: directory
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)
+
+ - name: create placeholder location for R kernelspecs in yarn client
+   file:
+     path: "{{ jupyter_kernelspec_location }}/spark_R_yarn_client"
+     state: directory
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)
+
+ - name: update R kernelspec for yarn cluster mode
+   shell: "tar -zxvf {{ install_temp_dir }}/{{ kernelspec_archive }} --strip 1 --directory {{ jupyter_kernelspec_location }}/spark_R_yarn_cluster/ spark_R_yarn_cluster/"
+   ignore_errors: yes
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)
+
+ - name: update R kernelspec for for yarn client
+   shell: "tar -zxvf {{ install_temp_dir }}/{{ kernelspec_archive }} --strip 1 --directory {{ jupyter_kernelspec_location }}/spark_R_yarn_client/ spark_R_yarn_client/"
+   ignore_errors: yes
+   when: (inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true)
+
+# - name: update R kernelspec and disable impersonation (only applies to cluster mode)
+#   shell: "sed -i 's/ --proxy-user ${KERNEL_USERNAME:-ERROR__NO__KERNEL_USERNAME}//g' {{ jupyter_kernelspec_location }}/spark_R_yarn_cluster/kernel.json"
+#   ignore_errors: yes
+#   when: (notebook.enable_impersonation == false) and ((inventory_hostname in groups['master']) or (notebook.deploy_kernelspecs_to_workers == true))
+
+
+

@@ -1,0 +1,12 @@
+- name: spark setup
+  hosts: all
+  remote_user: root
+  roles:
+    - role: zookeeper
+    - role: kafka
+    - role: hdfs
+    - role: spark
+    - role: spark-cluster-admin
+#    - role: elasticsearch
+
+
